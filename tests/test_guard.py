@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from strands.hooks import BeforeToolCallEvent, HookRegistry
 
+from rein.core.project import build_project_model
 from rein_strands import Decision, ReinToolGuard, Severity, evaluate, extract_reviewable
-from rein_strands.guard import _inline_python
+from rein_strands.extraction import _inline_python
 
 DANGER = "import os\nos.system(cmd)\n"
 
@@ -160,7 +162,76 @@ def test_audit_mode_never_cancels():
 
 
 def test_invalid_mode_rejected():
-    import pytest
-
     with pytest.raises(ValueError):
         ReinToolGuard(mode="nope")
+
+
+# --- project-aware unresolved (hallucinated) imports ---
+
+@pytest.fixture(scope="module")
+def project(tmp_path_factory):
+    d = tmp_path_factory.mktemp("proj")
+    (d / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "0.0.0"\ndependencies = ["requests"]\n'
+    )
+    pkg = d / "mypkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "util.py").write_text("def f():\n    return 1\n")
+    return build_project_model(str(d))
+
+
+def test_hallucinated_import_is_flagged(project):
+    d = evaluate(
+        "file_write",
+        {"path": "app.py", "content": "import totally_fake_xyz123\n"},
+        block_at=Severity.MEDIUM,
+        model=project,
+    )
+    assert d.block
+    assert any(f.rule_id == "imports.unresolved" for f in d.findings)
+
+
+def test_real_imports_not_flagged(project):
+    d = evaluate(
+        "file_write",
+        {"path": "app.py", "content": "import os\nimport requests\nimport mypkg.util\n"},
+        model=project,
+    )
+    assert all(f.rule_id != "imports.unresolved" for f in d.findings)
+
+
+def test_import_check_inert_without_model():
+    d = evaluate("file_write", {"path": "app.py", "content": "import totally_fake_xyz123\n"})
+    assert all(f.rule_id != "imports.unresolved" for f in d.findings)
+
+
+def test_inline_python_c_import_is_checked(project):
+    d = evaluate(
+        "shell",
+        {"command": 'python3 -c "import totally_fake_xyz123"'},
+        block_at=Severity.MEDIUM,
+        model=project,
+    )
+    assert any(f.rule_id == "imports.unresolved" for f in d.findings)
+
+
+def test_repl_keeps_import_check(project):
+    # repl drops undefined-name (stateful), but a missing import is still missing.
+    d = evaluate(
+        "python_repl",
+        {"code": "import totally_fake_xyz123\n"},
+        block_at=Severity.MEDIUM,
+        model=project,
+    )
+    assert any(f.rule_id == "imports.unresolved" for f in d.findings)
+
+
+def test_guard_with_project_root_flags_hallucination(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "d"\nversion = "0"\ndependencies = ["requests"]\n'
+    )
+    guard = ReinToolGuard(block_at=Severity.MEDIUM, project_root=str(tmp_path))
+    ev = _event("file_write", {"path": "app.py", "content": "import totally_fake_xyz123\n"})
+    guard._before_tool(ev)
+    assert isinstance(ev.cancel_tool, str) and "imports.unresolved" in ev.cancel_tool

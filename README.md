@@ -52,6 +52,28 @@ rein catches hard-coded secrets, unsafe calls (`os.system`, `eval`, `pickle`,
 weak hashes, and so on), and hallucinated or undefined names in the code an agent
 writes. Each finding comes with the reason and a remedy, not just an alert.
 
+## Catching hallucinated imports
+
+Pass `project_root` and rein also checks every Python import the agent writes
+against the project's stdlib, declared dependencies, and own modules, so a
+hallucinated or undeclared module is caught before the file is written or run:
+
+```python
+ReinToolGuard(project_root=".", block_at=Severity.MEDIUM)
+```
+
+```python
+# the agent writes this; rein flags `import nonexistent_pkg` as imports.unresolved
+import os
+import nonexistent_pkg   # not stdlib, not a declared dependency, not in the project
+```
+
+This needs the project to declare dependencies (a `pyproject.toml` `[project]`
+table or a `requirements*.txt`); without one rein cannot know what is installed,
+so the import check stays inert rather than guessing. `imports.unresolved` is
+`MEDIUM`, so set `block_at=Severity.MEDIUM` to block on it (or leave it advisory
+at the default).
+
 ## Modes and threshold
 
 ```python
