@@ -89,6 +89,13 @@ def test_clean_python_file_does_not_block():
     assert not d.block
 
 
+def test_code_field_without_path_is_analyzed():
+    # A custom tool with a code-named field but no path is still analyzed as
+    # Python (not treated as opaque text), so dangerous code is caught.
+    d = evaluate("save_code", {"content": "import os\nos.system(x)\n"})
+    assert d.block and any(f.rule_id == "security.os-system" for f in d.findings)
+
+
 # --- threshold ---
 
 def test_medium_does_not_block_at_default_high():

@@ -14,6 +14,10 @@ import shlex
 # file_write(content), editor(file_text/new_str), python_repl(code). `old_str`
 # is deliberately excluded: it is the text being removed, not added.
 _CONTENT_KEYS = ("content", "code", "command", "file_text", "new_str")
+# The subset of content fields whose NAME implies source code (everything except
+# `command`, which is a shell line). Used to decide, when there is no path hint,
+# whether to run the Python checks or treat the value as opaque text.
+_CODE_KEYS = ("content", "code", "file_text", "new_str")
 # Fields that name a path, so rein gates the right (e.g. Python) checks.
 _PATH_KEYS = ("path", "file_path")
 # Shell argv[0] values that run inline Python passed via `-c`.
@@ -81,7 +85,13 @@ def segments(tool_name: str, tool_input: object) -> list[tuple[str, str | None, 
     if content.strip():
         if tool_name in _REPL_TOOLS:
             kind = "repl"
-        elif path is not None and path.endswith(".py"):
+        elif path is not None:
+            # A path decides it: .py is Python, anything else is not.
+            kind = "module" if path.endswith(".py") else "text"
+        elif isinstance(tool_input, dict) and any(tool_input.get(k) for k in _CODE_KEYS):
+            # No path, but a code-named field (not a bare command): treat as
+            # Python. If it does not parse the AST checks no-op, so prose or a
+            # shell line still will not false-positive - only secrets apply.
             kind = "module"
         else:
             kind = "text"

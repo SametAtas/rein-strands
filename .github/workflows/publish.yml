@@ -1,0 +1,76 @@
+name: Publish to PyPI
+
+# Trusted publishing (OIDC) - no stored API token. Configure a trusted publisher
+# on PyPI and TestPyPI for this repository and this workflow file. A manual run
+# publishes to TestPyPI (a dry run); publishing a GitHub Release publishes to PyPI.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Package index to publish to"
+        type: choice
+        options:
+          - testpypi
+          - pypi
+        default: testpypi
+
+jobs:
+  build:
+    # Guard so the workflow only runs in this repository, never in a fork.
+    if: github.repository == 'SametAtas/rein-strands'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build and check sdist + wheel
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  testpypi:
+    needs: build
+    if: >-
+      github.repository == 'SametAtas/rein-strands'
+      && github.event_name == 'workflow_dispatch'
+      && inputs.target == 'testpypi'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # OIDC: mint the short-lived token the index trusts
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  pypi:
+    needs: build
+    if: >-
+      github.repository == 'SametAtas/rein-strands'
+      && (github.event_name == 'release'
+          || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi'))
+    runs-on: ubuntu-latest
+    environment: pypi  # one-time: create this env on the repo for an approval gate
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
