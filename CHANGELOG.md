@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+- Deep mode: `ReinToolGuard(scanners=("bandit", "gitleaks", ...))` also runs the
+  named external scanners (ruff/bandit/gitleaks/semgrep) over a tool's content
+  before it executes, folding their findings into the verdict via rein-engine's
+  `scan_content`. Off by default and opt-in, because external scanners cost real
+  time per call (semgrep especially suits a commit-time gate). The fast native
+  checks remain the default. Requires `rein-engine>=0.3.0`.
+
 ## 0.3.0
 
 - End-to-end coverage: a real Strands `Agent`, driven by a scripted model, proves

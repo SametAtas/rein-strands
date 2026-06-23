@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Security",
 ]
 dependencies = [
-    "rein-engine>=0.2.0",
+    "rein-engine>=0.3.0",
     "strands-agents>=1.40",
 ]
 

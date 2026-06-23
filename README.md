@@ -102,6 +102,23 @@ This needs the project to declare dependencies (a `pyproject.toml` `[project]`
 table or a `requirements*.txt`); without one rein cannot know what is installed,
 so the import check stays inert rather than guessing.
 
+## Deep mode: external scanners
+
+By default the guard runs rein's fast, in-process native checks. Opt into the
+external scanners rein integrates (ruff, bandit, gitleaks, semgrep) and they run
+over the tool's content before it executes, folding their findings into the same
+verdict:
+
+```python
+ReinToolGuard(scanners=("bandit", "gitleaks"))
+```
+
+This is off by default on purpose: external scanners cost real time per call, so
+it is opt-in and you choose which to run. bandit and gitleaks are reasonable
+per-call; semgrep is heavier and usually better as a commit-time gate (where
+`rein review` already runs it). The named scanners must be installed; a missing
+one is skipped.
+
 ## How it fits with Strands' own safety
 
 Strands shell relies on up-front **isolation** (declare what the agent can reach;

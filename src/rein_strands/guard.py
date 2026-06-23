@@ -25,8 +25,9 @@ from rein.core.findings import Finding, Severity
 from rein.core.parsing import safe_parse
 from rein.core.project import ProjectModel, build_project_model
 from rein.core.resolution import check_unresolved_imports
+from rein.scanners import scan_content
 
-from .extraction import segments
+from .extraction import extract_reviewable, segments
 
 logger = logging.getLogger("rein_strands")
 
@@ -89,6 +90,7 @@ def evaluate(
     *,
     block_at: Severity = Severity.HIGH,
     model: ProjectModel | None = None,
+    extra_findings: tuple[Finding, ...] = (),
 ) -> Decision:
     """Review a tool call's code/command with rein and decide whether to block.
 
@@ -97,6 +99,10 @@ def evaluate(
     not parse. When ``model`` (a rein ``ProjectModel``) is supplied, Python code
     is also checked for unresolved imports, catching a hallucinated or undeclared
     module before the agent writes or runs it.
+
+    ``extra_findings`` are merged in alongside the native ones (deduplicated) and
+    count toward the verdict. The hook uses this to fold in external-scanner
+    findings, keeping this function pure (the I/O happens in the caller).
     """
     findings: list[Finding] = []
     forced_high = False
@@ -114,6 +120,7 @@ def evaluate(
         if seg_high:
             forced_high, forced_reason = True, seg_reason
 
+    findings.extend(extra_findings)
     findings = _dedup(findings)
     worst = max((f.severity for f in findings), default=Severity.INFO)
     if forced_high:
@@ -149,6 +156,11 @@ class ReinToolGuard(HookProvider):
             also checked for unresolved imports, catching hallucinated or
             undeclared modules. Inert when omitted or when no dependencies are
             declared.
+        scanners: external scanners to also run on the tool's content, e.g.
+            ``("bandit", "gitleaks")``. Off by default (the fast native checks
+            only). Opt-in because external scanners cost real time per call;
+            semgrep especially is better suited to a commit-time gate. Requires
+            the named scanners to be installed; a missing one is skipped.
         on_finding: optional callback ``(Decision) -> None`` invoked whenever a
             call produces findings. Defaults to logging at WARNING.
     """
@@ -159,12 +171,14 @@ class ReinToolGuard(HookProvider):
         block_at: Severity = Severity.HIGH,
         mode: str = "enforce",
         project_root: str | Path | None = None,
+        scanners: tuple[str, ...] = (),
         on_finding=None,
     ) -> None:
         if mode not in ("enforce", "audit"):
             raise ValueError("mode must be 'enforce' or 'audit'")
         self.block_at = block_at
         self.mode = mode
+        self.scanners = tuple(scanners)
         self.on_finding = on_finding
         # Built once: scanning the project on every tool call would be wasteful.
         self.project_model = (
@@ -176,11 +190,19 @@ class ReinToolGuard(HookProvider):
 
     def _before_tool(self, event: BeforeToolCallEvent) -> None:
         tool_use = event.tool_use or {}
+        extra: tuple[Finding, ...] = ()
+        if self.scanners:
+            # Deep mode (I/O): run the configured external scanners over the tool's
+            # content before it executes. Kept out of the pure evaluate().
+            content, path = extract_reviewable(tool_use.get("input"))
+            if content.strip():
+                extra = tuple(scan_content(content, path, tools=self.scanners))
         decision = evaluate(
             tool_use.get("name", "?"),
             tool_use.get("input"),
             block_at=self.block_at,
             model=self.project_model,
+            extra_findings=extra,
         )
         if decision.findings:
             if self.on_finding is not None:

@@ -7,9 +7,17 @@ from types import SimpleNamespace
 import pytest
 from strands.hooks import BeforeToolCallEvent, HookRegistry
 
+from rein.core.findings import Finding
 from rein.core.project import build_project_model
 from rein_strands import Decision, ReinToolGuard, Severity, evaluate, extract_reviewable
 from rein_strands.extraction import _inline_python
+
+
+def _high_finding(rule_id: str = "bandit.B602") -> Finding:
+    return Finding(
+        rule_id=rule_id, severity=Severity.HIGH, message="shell=True is risky",
+        path="app.py", line=1, snippet="subprocess.run(cmd, shell=True)", tags=("bandit",),
+    )
 
 DANGER = "import os\nos.system(cmd)\n"
 
@@ -232,6 +240,36 @@ def test_repl_keeps_import_check(project):
         model=project,
     )
     assert any(f.rule_id == "imports.unresolved" for f in d.findings)
+
+
+# --- deep mode: external scanners merged into the verdict ---
+
+def test_evaluate_merges_extra_findings():
+    d = evaluate("file_write", {"path": "a.py", "content": "x = 1\n"},
+                 extra_findings=(_high_finding(),))
+    assert d.block and any(f.rule_id == "bandit.B602" for f in d.findings)
+
+
+def test_deep_mode_blocks_on_scanner_finding(monkeypatch):
+    monkeypatch.setattr("rein_strands.guard.scan_content",
+                        lambda content, path, *, tools: [_high_finding()])
+    guard = ReinToolGuard(scanners=("bandit",))
+    ev = _event("file_write",
+                {"path": "app.py", "content": "import subprocess\nsubprocess.run(c, shell=True)\n"})
+    guard._before_tool(ev)
+    assert isinstance(ev.cancel_tool, str) and "bandit.B602" in ev.cancel_tool
+
+
+def test_no_scanners_does_not_invoke_scan_content(monkeypatch):
+    calls = {"n": 0}
+
+    def boom(*args, **kwargs):
+        calls["n"] += 1
+        return []
+
+    monkeypatch.setattr("rein_strands.guard.scan_content", boom)
+    ReinToolGuard()._before_tool(_event("file_write", {"path": "a.py", "content": "x = 1\n"}))
+    assert calls["n"] == 0  # default (no scanners) never pays the scanner cost
 
 
 def test_guard_with_project_root_flags_hallucination(tmp_path):

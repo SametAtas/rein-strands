@@ -5,5 +5,5 @@ from rein.core.findings import Severity
 from .extraction import extract_reviewable
 from .guard import Decision, ReinToolGuard, evaluate
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __all__ = ["ReinToolGuard", "Decision", "Severity", "evaluate", "extract_reviewable"]
