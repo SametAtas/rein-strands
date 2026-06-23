@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rein-strands"
+dynamic = ["version"]
+description = "Deterministic, no-LLM tool-call guardrail for Strands agents, backed by the rein engine."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Abdulsamet Atas" }]
+keywords = ["strands", "strands-agents", "rein", "ai", "agents", "security", "guardrails"]
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Security",
+]
+dependencies = [
+    "rein-engine>=0.1.1",
+    "strands-agents>=1.40",
+]
+
+[project.urls]
+Homepage = "https://github.com/SametAtas/rein-strands"
+Repository = "https://github.com/SametAtas/rein-strands"
+Issues = "https://github.com/SametAtas/rein-strands/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "strands-agents-tools"]
+
+[tool.hatch.version]
+path = "src/rein_strands/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rein_strands"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
